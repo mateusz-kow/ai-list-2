@@ -1,7 +1,5 @@
-use std::error::Error;
-use std::fmt::Display;
+use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
-use crate::board::Field::OCCUPIED;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Copy, Clone)]
 pub enum Player {
@@ -35,97 +33,81 @@ pub struct Board {
 
 impl Board {
     pub fn new(m: usize, n: usize) -> Board {
-        Board {
-            fields: Board::init_board(m, n).unwrap(),
+        let mut fields = vec![vec![Field::EMPTY; n]; m];
+        for i in 0..m {
+            fields[i][0] = Field::OCCUPIED(Player::WHITE);
+            fields[i][1] = Field::OCCUPIED(Player::WHITE);
+            fields[i][n - 2] = Field::OCCUPIED(Player::BLACK);
+            fields[i][n - 1] = Field::OCCUPIED(Player::BLACK);
         }
+        Board { fields }
     }
 
-    pub fn get_possible_moves(&self, player: &Player) -> Vec<Board> {
-        let mut result: Vec<Board> = Vec::new();
-
-        for (i, row) in self.fields.iter().enumerate() {
-            for (j, field) in row.iter().enumerate() {
-                let is_player = match field {
-                    Field::OCCUPIED(p) if p == player => true,
-                    _ => false,
-                };
-
-                if is_player {
-                    result.append(&mut self.get_possible_player_moves(player, i, j));
+    pub fn get_possible_moves(&self, player: Player) -> Vec<Board> {
+        let mut boards = Vec::new();
+        for i in 0..self.fields.len() {
+            for j in 0..self.fields[0].len() {
+                if let Field::OCCUPIED(p) = self.fields[i][j] {
+                    if p == player {
+                        boards.append(&mut self.get_moves_for_piece(i, j, player));
+                    }
                 }
             }
         }
-
-        result
+        boards
     }
 
-    fn get_possible_player_moves(&self, player: &Player, i: usize, j: usize) -> Vec<Board> {
-        let mut result: Vec<Board> = Vec::new();
+    fn get_moves_for_piece(&self, i: usize, j: usize, player: Player) -> Vec<Board> {
+        let mut moves = Vec::new();
+        let height = self.fields.len() as isize;
+        let width = self.fields[0].len() as isize;
+        let direction: isize = if player == Player::WHITE { 1 } else { -1 };
 
-        let height = self.fields.len();
-        let width = self.fields[0].len();
+        let next_j = j as isize + direction;
+        if next_j < 0 || next_j >= width { return moves; }
 
-        let new_j = match player {
-            Player::WHITE => j + 1,
-            Player::BLACK => j - 1,
-        };
+        let nj = next_j as usize;
+        let rows = [i as isize - 1, i as isize, i as isize + 1];
 
-        if new_j < width && j > 0 {
-            if self.fields[i][new_j] == Field::EMPTY {
-                result.push(self.move_player(i, j, i, new_j));
-            }
+        for &ni_isize in &rows {
+            if ni_isize < 0 || ni_isize >= height { continue; }
+            let ni = ni_isize as usize;
+            let target = self.fields[ni][nj];
 
-            if i + 1 < height && self.fields[i+1][new_j] != Field::OCCUPIED(*player) {
-                result.push(self.move_player(i, j, i + 1, new_j));
-            }
-
-            if i > 0 && self.fields[i-1][new_j] != Field::OCCUPIED(*player) {
-                result.push(self.move_player(i, j, i - 1, new_j));
+            if ni == i {
+                if target == Field::EMPTY {
+                    moves.push(self.create_move(i, j, ni, nj));
+                }
+            } else {
+                if target != Field::OCCUPIED(player) {
+                    moves.push(self.create_move(i, j, ni, nj));
+                }
             }
         }
-
-        result
+        moves
     }
 
-    fn move_player(&self, i: usize, j: usize, i_to: usize, j_to: usize) -> Board {
-        let mut new_fields: Vec<Vec<Field>> = self.fields.clone();
-        new_fields[i_to][j_to] = new_fields[i][j];
-        new_fields[i][j] = Field::EMPTY;
-
-        Board {fields: new_fields}
-    }
-    fn init_board(m: usize, n: usize) -> Result<Vec<Vec<Field>>, Box<dyn Error>> {
-        let mut board = vec![vec![Field::EMPTY; n]; m];
-
-        if m == 0 {
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "'m' must be greater than 0",
-            )));
-        }
-        if n < 4 {
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "'n' must be greater than 4",
-            )));
-        }
-
-        for i in 0..m {
-            for j in 0..2 {
-                board[i][j] = Field::OCCUPIED(Player::WHITE);
-            }
-
-            for j in n - 2..n {
-                board[i][j] = Field::OCCUPIED(Player::BLACK);
-            }
-        }
-
-        Ok(board)
+    fn create_move(&self, f_i: usize, f_j: usize, t_i: usize, t_j: usize) -> Board {
+        let mut next_fields = self.fields.clone();
+        next_fields[t_i][t_j] = next_fields[f_i][f_j];
+        next_fields[f_i][f_j] = Field::EMPTY;
+        Board { fields: next_fields }
     }
 }
 
 impl Display for Board {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for row in &self.fields {
+            for field in row {
+                let sym = match field {
+                    Field::EMPTY => "_",
+                    Field::OCCUPIED(Player::WHITE) => "W",
+                    Field::OCCUPIED(Player::BLACK) => "B",
+                };
+                write!(f, "{} ", sym)?;
+            }
+            writeln!(f)?;
+        }
+        Ok(())
     }
 }

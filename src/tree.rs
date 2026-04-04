@@ -1,97 +1,47 @@
 use crate::board::{Board, Player};
-use crate::heuristic::{Heuristic};
+use crate::heuristic::Heuristic;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TreeNode {
-    board: Board,
-    player: Player,
-    value: i8,
-    children: Option<Vec<Box<TreeNode>>>,
+    pub board: Board,
+    pub player_to_move: Player,
+    pub value: i32,
+    pub children: Vec<TreeNode>,
 }
 
 impl TreeNode {
-    pub fn new(board: Board, value: i8, player: Player) -> TreeNode {
-        TreeNode { board, value, player, children : None }
+    pub fn new(board: Board, player_to_move: Player) -> Self {
+        Self { board, player_to_move, value: 0, children: Vec::new() }
     }
 
-    fn recalculate_values(&mut self, depth: usize, maximizing: bool) -> i8 {
-        if depth == 0 || self.children.is_none() {
+    // Standard Minimax with depth limit
+    pub fn compute_minimax(&mut self, depth: usize, maximizing: bool, heuristic: &dyn Heuristic, original_player: Player) -> i32 {
+        if depth == 0 {
+            self.value = heuristic.eval_state(&original_player, &self.board) as i32;
             return self.value;
         }
 
-        let children = self.children.as_mut().unwrap();
-
-        if maximizing {
-            let mut best = i8::MIN;
-
-            for child in children {
-                let val = child.recalculate_values(depth - 1, false);
-                best = best.max(val);
-            }
-
-            self.value = best;
-        } else {
-            let mut best = i8::MAX;
-
-            for child in children {
-                let val = child.recalculate_values(depth - 1, true);
-                best = best.min(val);
-            }
-
-            self.value = best;
+        let moves = self.board.get_possible_moves(self.player_to_move);
+        if moves.is_empty() {
+            self.value = heuristic.eval_state(&original_player, &self.board) as i32;
+            return self.value;
         }
-
-        self.value
-    }
-
-    pub fn minmax(&mut self, depth: usize, maximizing: bool) -> Option<&TreeNode> {
-        self.recalculate_values(depth, maximizing);
-
-        let children = self.children.as_ref()?;
-
-        if maximizing {
-            children.iter().max_by_key(|child| child.value).map(|c| c.as_ref())
-        } else {
-            children.iter().min_by_key(|child| child.value).map(|c| c.as_ref())
-        }
-    }
-
-
-    pub fn expand(&mut self, depth: usize, heuristic: &dyn Heuristic) {
-        if depth == 0 { return; }
-
-        let next_moves: Vec<Board> = self.board.get_possible_moves(&self.player);
 
         let mut children = Vec::new();
-        for next_board in next_moves {
-            let eval = heuristic.eval_state(&self.player, &next_board);
-
-            let mut child = Box::new(TreeNode::new(next_board, eval, self.player));
-
-            child.expand(depth - 1, heuristic);
-
+        for m in moves {
+            let mut child = TreeNode::new(m, self.player_to_move.opponent());
+            child.compute_minimax(depth - 1, !maximizing, heuristic, original_player);
             children.push(child);
         }
 
-        self.children = Some(children);
-    }
+        let res = if maximizing {
+            children.iter().map(|c| c.value).max().unwrap_or(i32::MIN)
+        } else {
+            children.iter().map(|c| c.value).min().unwrap_or(i32::MAX)
+        };
 
-    pub fn get_children(&self) -> &[Box<TreeNode>] {
-        match &self.children {
-            Some(v) => v,
-            None => &[],
-        }
-    }
-
-    pub fn set_children(&mut self, children: Vec<Box<TreeNode>>) {
-        self.children = Some(children);
-    }
-
-    pub fn get_board(&self) -> &Board {
-        &self.board
-    }
-
-    pub fn get_value(&self) -> i8 {
-        self.value
+        self.children = children;
+        self.value = res;
+        res
     }
 }

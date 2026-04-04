@@ -3,58 +3,54 @@ mod heuristic;
 mod board;
 mod engine;
 
-use std::cmp::PartialEq;
-use serde::{Deserialize, Serialize};
-use std::error::Error;
-use std::fmt::Display;
 use tree::TreeNode;
 use crate::board::{Board, Field, Player};
-use crate::heuristic::OccupiedSquaresCountHeuristic;
+use crate::heuristic::{OccupiedSquaresCountHeuristic, Heuristic};
 
 fn main() {
-    let depth: usize = 5;
+    let depth: usize = 3;
     let m: usize = 8;
     let n: usize = 8;
 
-    let player = Player::WHITE;
-
-    let starting_board = Board::new(m, n);
+    let mut board = Board::new(m, n);
     let heuristic = OccupiedSquaresCountHeuristic {};
-    let mut current_node = TreeNode::new(starting_board, 0, player);
-    let mut maximizing = true;
+    let mut current_player = Player::WHITE;
+
+    println!("Initial Board:\n{}", board);
 
     for i in 0..100 {
-        println!("Iteration {}", i);
+        println!("--- Turn {}: {:?} ---", i, current_player);
 
-        current_node.expand(depth, &heuristic);
-        current_node = current_node.minmax(depth, maximizing).unwrap().clone();
+        let mut root = TreeNode::new(board.clone(), current_player);
+        root.compute_minimax(depth, true, &heuristic, current_player);
 
-        println!("Current value: {}", current_node.get_value());
-
-        maximizing = !maximizing;
-        let current_board = current_node.get_board();
-        let winner = determine_winner(current_board);
-
-        match winner {
-            Some(winner) => {
-                println!("{:?} won!", winner);
-                println!("Board:\n{}", current_board);
-                break
-            },
-            None => {}
+        // Find the best move
+        if let Some(best_node) = root.children.iter().max_by_key(|c| c.value) {
+            board = best_node.board.clone();
+        } else {
+            println!("No moves left for {:?}", current_player);
+            break;
         }
+
+        println!("{}", board);
+
+        if let Some(winner) = determine_winner(&board) {
+            println!("GAME OVER! {:?} won!", winner);
+            break;
+        }
+
+        current_player = current_player.opponent();
     }
 }
 
 fn determine_winner(board: &Board) -> Option<Player> {
-    let height = board.fields.len();
     let width = board.fields[0].len();
-
-    for i in 0..height {
-        if board.fields[i][0] == Field::OCCUPIED(Player::BLACK) {
-            return Some(Player::BLACK);
+    for row in &board.fields {
+        if row[width - 1] == Field::OCCUPIED(Player::WHITE) {
+            return Some(Player::WHITE);
         }
-        if board.fields[i][width-1] == Field::OCCUPIED(Player::BLACK) {
+
+        if row[0] == Field::OCCUPIED(Player::BLACK) {
             return Some(Player::BLACK);
         }
     }
