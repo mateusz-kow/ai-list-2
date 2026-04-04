@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fmt::Display;
 use serde::{Deserialize, Serialize};
+use crate::board::Field::OCCUPIED;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Copy, Clone)]
 pub enum Player {
@@ -64,40 +65,22 @@ impl Board {
         let height = self.fields.len();
         let width = self.fields[0].len();
 
-        match player {
-            Player::WHITE => {
-                let new_j = j + 1;
-                if new_j < width {
-                    if self.fields[i][new_j] == Field::EMPTY {
-                        result.push(self.move_player(i, j, i, new_j));
-                    }
+        let new_j = match player {
+            Player::WHITE => j + 1,
+            Player::BLACK => j - 1,
+        };
 
-                    if i + 1 < height {
-                        result.push(self.move_player(i, j, i + 1, new_j));
-                    }
-
-                    if i > 0 {
-                        result.push(self.move_player(i, j, i - 1, new_j));
-                    }
-                }
+        if new_j < width && j > 0 {
+            if self.fields[i][new_j] == Field::EMPTY {
+                result.push(self.move_player(i, j, i, new_j));
             }
 
-            Player::BLACK => {
-                if j > 0 {
-                    let new_j = j - 1;
+            if i + 1 < height && self.fields[i+1][new_j] != Field::OCCUPIED(*player) {
+                result.push(self.move_player(i, j, i + 1, new_j));
+            }
 
-                    if self.fields[i][new_j] == Field::EMPTY {
-                        result.push(self.move_player(i, j, i, new_j));
-                    }
-
-                    if i + 1 < height {
-                        result.push(self.move_player(i, j, i + 1, new_j));
-                    }
-
-                    if i > 0 {
-                        result.push(self.move_player(i, j, i - 1, new_j));
-                    }
-                }
+            if i > 0 && self.fields[i-1][new_j] != Field::OCCUPIED(*player) {
+                result.push(self.move_player(i, j, i - 1, new_j));
             }
         }
 
