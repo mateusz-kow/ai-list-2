@@ -8,7 +8,7 @@ use crate::board::{Board, Field, Player};
 use crate::heuristic::{OccupiedSquaresCountHeuristic, Heuristic};
 
 fn main() {
-    let depth: usize = 3;
+    let depth: usize = 5;
     let m: usize = 8;
     let n: usize = 8;
 
@@ -24,7 +24,6 @@ fn main() {
         let mut root = TreeNode::new(board.clone(), current_player);
         root.compute_minimax(depth, true, &heuristic, current_player);
 
-        // Find the best move
         if let Some(best_node) = root.children.iter().max_by_key(|c| c.value) {
             board = best_node.board.clone();
         } else {
