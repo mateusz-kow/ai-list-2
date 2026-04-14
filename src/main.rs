@@ -65,6 +65,7 @@ fn main() {
 
     let mut board = Board::new(args.m, args.n, fields);
     let mut current_player = Player::WHITE;
+    let s = Instant::now();
 
     println!("Start gry Breakthrough (Plansza {}x{}, Głębokość {})", args.m, args.n, args.depth);
 
@@ -95,6 +96,7 @@ fn main() {
             println!("--- WYNIK ---");
             println!("Liczba rund: {}", r);
             println!("Zwycięzca: {:?}", current_player);
+            println!("Czas: {:?}", s.elapsed());
             break;
         }
         current_player = current_player.opponent();
