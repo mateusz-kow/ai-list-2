@@ -30,7 +30,10 @@ impl Heuristic for ProgressHeuristic {
                 if let Field::OCCUPIED(p) = field {
                     let dist = if *p == Player::WHITE { i } else { (board.m - 1) - i };
                     let val = 10 + (dist * dist) as i32;
-                    res += if *p == Player::WHITE { val } else { -val };
+
+                    let win_bonus = if dist == board.m - 1 { 5000 } else { 0 };
+
+                    res += if *p == Player::WHITE { val + win_bonus } else { -(val + win_bonus) };
                 }
             }
         }
@@ -41,21 +44,29 @@ impl Heuristic for ProgressHeuristic {
 pub struct BreakthroughHeuristic;
 impl Heuristic for BreakthroughHeuristic {
     fn eval_state(&self, board: &Board) -> i32 {
-        let mut w_score = 0;
-        let mut b_score = 0;
+        let mut score = 0;
         for (i, row) in board.fields.iter().enumerate() {
-            for field in row {
+            for (j, field) in row.iter().enumerate() {
                 if let Field::OCCUPIED(p) = field {
-                    if *p == Player::WHITE {
-                        w_score += 10 + (i * 5) as i32;
-                    } else {
-                        let dist = (board.m - 1) - i;
-                        b_score += 10 + (dist * 5) as i32;
+                    let is_white = *p == Player::WHITE;
+                    let dist = if is_white { i } else { (board.m - 1) - i };
+
+                    let mut p_score = 10 + (dist * 10) as i32;
+
+                    if is_white && i > 0 {
+                        if j > 0 && board.fields[i-1][j-1] == Field::OCCUPIED(Player::WHITE) { p_score += 5; }
+                        if j < board.n-1 && board.fields[i-1][j+1] == Field::OCCUPIED(Player::WHITE) { p_score += 5; }
+                    } else if !is_white && i < board.m - 1 {
+                        if j > 0 && board.fields[i+1][j-1] == Field::OCCUPIED(Player::BLACK) { p_score += 5; }
+                        if j < board.n-1 && board.fields[i+1][j+1] == Field::OCCUPIED(Player::BLACK) { p_score += 5; }
                     }
+
+                    if dist == board.m - 1 { p_score += 10000; }
+                    score += if is_white { p_score } else { -p_score };
                 }
             }
         }
-        w_score - b_score
+        score
     }
 }
 

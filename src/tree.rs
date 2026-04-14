@@ -4,7 +4,7 @@ use dashmap::DashMap;
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum NodeTag { Exact, Alpha, Beta }
 
 struct CacheEntry {
@@ -22,15 +22,18 @@ impl Solver {
         let mut moves = board.get_possible_moves(player);
         if moves.is_empty() { return None; }
 
-
-        moves.sort_by_cached_key(|m| -heuristic.eval_state(m) * if player == Player::WHITE { 1 } else { -1 });
-
+        let is_white = player == Player::WHITE;
         let cache = DashMap::new();
 
+        moves.sort_by_cached_key(|m| {
+            let score = heuristic.eval_state(m);
+            if is_white { -score } else { score }
+        });
+
         moves.into_par_iter().map(|m| {
-            let val = Self::alpha_beta(&m, depth - 1, -30000, 30000, false, player.opponent(), heuristic, nodes, &cache);
+            let val = Self::alpha_beta(&m, depth - 1, -32000, 32000, !is_white, player.opponent(), heuristic, nodes, &cache);
             (m, val)
-        }).max_by_key(|x| if player == Player::WHITE { x.1 } else { -x.1 })
+        }).max_by_key(|x| if is_white { x.1 } else { -x.1 })
             .map(|x| x.0)
     }
 
@@ -62,8 +65,13 @@ impl Solver {
             return heuristic.eval_state(board);
         }
 
-        let moves = board.get_possible_moves(curr_player);
+        let mut moves = board.get_possible_moves(curr_player);
         if moves.is_empty() { return heuristic.eval_state(board); }
+
+        moves.sort_by_cached_key(|m| {
+            let score = heuristic.eval_state(m);
+            if maximizing { -score } else { score }
+        });
 
         let mut best_val = if maximizing { -32000 } else { 32000 };
         let original_alpha = alpha;
