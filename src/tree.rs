@@ -1,47 +1,50 @@
 use crate::board::{Board, Player};
 use crate::heuristic::Heuristic;
 
-#[derive(Clone)]
-pub struct TreeNode {
-    pub board: Board,
-    pub player_to_move: Player,
-    pub value: i32,
-    pub children: Vec<TreeNode>,
-}
+pub struct AlphaBeta;
 
-impl TreeNode {
-    pub fn new(board: Board, player_to_move: Player) -> Self {
-        Self { board, player_to_move, value: 0, children: Vec::new() }
+impl AlphaBeta {
+    pub fn get_best_move(board: &Board, depth: usize, player: Player, heuristic: &dyn Heuristic, nodes: &mut u64) -> Option<Board> {
+        let moves = board.get_possible_moves(player);
+        let mut best_val = if player == Player::WHITE { i32::MIN } else { i32::MAX };
+        let mut best_board = None;
+
+        for m in moves {
+            let val = Self::search(&m, depth - 1, i32::MIN, i32::MAX, player.opponent(), heuristic, nodes);
+            if player == Player::WHITE {
+                if val >= best_val { best_val = val; best_board = Some(m); }
+            } else {
+                if val <= best_val { best_val = val; best_board = Some(m); }
+            }
+        }
+        best_board
     }
 
-    // Standard Minimax with depth limit
-    pub fn compute_minimax(&mut self, depth: usize, maximizing: bool, heuristic: &dyn Heuristic, original_player: Player) -> i32 {
-        if depth == 0 {
-            self.value = heuristic.eval_state(&original_player, &self.board) as i32;
-            return self.value;
-        }
+    fn search(board: &Board, depth: usize, mut alpha: i32, mut beta: i32, player: Player, heuristic: &dyn Heuristic, nodes: &mut u64) -> i32 {
+        *nodes += 1;
+        if depth == 0 { return heuristic.eval_state(board); }
 
-        let moves = self.board.get_possible_moves(self.player_to_move);
-        if moves.is_empty() {
-            self.value = heuristic.eval_state(&original_player, &self.board) as i32;
-            return self.value;
-        }
+        let moves = board.get_possible_moves(player);
+        if moves.is_empty() { return heuristic.eval_state(board); }
 
-        let mut children = Vec::new();
-        for m in moves {
-            let mut child = TreeNode::new(m, self.player_to_move.opponent());
-            child.compute_minimax(depth - 1, !maximizing, heuristic, original_player);
-            children.push(child);
-        }
-
-        let res = if maximizing {
-            children.iter().map(|c| c.value).max().unwrap_or(i32::MIN)
+        if player == Player::WHITE {
+            let mut max_eval = i32::MIN;
+            for m in moves {
+                let eval = Self::search(&m, depth - 1, alpha, beta, Player::BLACK, heuristic, nodes);
+                max_eval = max_eval.max(eval);
+                alpha = alpha.max(eval);
+                if beta <= alpha { break; }
+            }
+            max_eval
         } else {
-            children.iter().map(|c| c.value).min().unwrap_or(i32::MAX)
-        };
-
-        self.children = children;
-        self.value = res;
-        res
+            let mut min_eval = i32::MAX;
+            for m in moves {
+                let eval = Self::search(&m, depth - 1, alpha, beta, Player::WHITE, heuristic, nodes);
+                min_eval = min_eval.min(eval);
+                beta = beta.min(eval);
+                if beta <= alpha { break; }
+            }
+            min_eval
+        }
     }
 }

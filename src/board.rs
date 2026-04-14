@@ -1,13 +1,7 @@
 use std::fmt::{Display, Formatter};
-use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, PartialEq, Debug, Copy, Clone)]
-pub enum Player {
-    #[serde(rename = "W")]
-    WHITE,
-    #[serde(rename = "B")]
-    BLACK,
-}
+#[derive(PartialEq, Debug, Copy, Clone)]
+pub enum Player { WHITE, BLACK }
 
 impl Player {
     pub fn opponent(&self) -> Player {
@@ -18,17 +12,13 @@ impl Player {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug, Copy, Clone)]
-#[serde(untagged)]
-pub enum Field {
-    OCCUPIED(Player),
-    #[serde(rename = "_")]
-    EMPTY,
-}
+#[derive(PartialEq, Debug, Copy, Clone)]
+pub enum Field { OCCUPIED(Player), EMPTY }
 
 #[derive(Debug, Clone)]
 pub struct Board {
     pub fields: Vec<Vec<Field>>,
+    pub last_move_from: Option<(usize, usize)>,
 }
 
 impl Board {
@@ -40,7 +30,7 @@ impl Board {
             fields[i][n - 2] = Field::OCCUPIED(Player::BLACK);
             fields[i][n - 1] = Field::OCCUPIED(Player::BLACK);
         }
-        Board { fields }
+        Board { fields, last_move_from: None }
     }
 
     pub fn get_possible_moves(&self, player: Player) -> Vec<Board> {
@@ -63,24 +53,21 @@ impl Board {
         let width = self.fields[0].len() as isize;
         let direction: isize = if player == Player::WHITE { 1 } else { -1 };
 
-        let next_j = j as isize + direction;
-        if next_j < 0 || next_j >= width { return moves; }
+        let nj = j as isize + direction;
+        if nj < 0 || nj >= width { return moves; }
 
-        let nj = next_j as usize;
-        let rows = [i as isize - 1, i as isize, i as isize + 1];
+        for &ni_off in &[-1, 0, 1] {
+            let ni = i as isize + ni_off;
+            if ni < 0 || ni >= height { continue; }
+            let target = self.fields[ni as usize][nj as usize];
 
-        for &ni_isize in &rows {
-            if ni_isize < 0 || ni_isize >= height { continue; }
-            let ni = ni_isize as usize;
-            let target = self.fields[ni][nj];
-
-            if ni == i {
+            if ni_off == 0 {
                 if target == Field::EMPTY {
-                    moves.push(self.create_move(i, j, ni, nj));
+                    moves.push(self.create_move(i, j, ni as usize, nj as usize));
                 }
             } else {
                 if target != Field::OCCUPIED(player) {
-                    moves.push(self.create_move(i, j, ni, nj));
+                    moves.push(self.create_move(i, j, ni as usize, nj as usize));
                 }
             }
         }
@@ -91,20 +78,24 @@ impl Board {
         let mut next_fields = self.fields.clone();
         next_fields[t_i][t_j] = next_fields[f_i][f_j];
         next_fields[f_i][f_j] = Field::EMPTY;
-        Board { fields: next_fields }
+        Board { fields: next_fields, last_move_from: Some((f_i, f_j)) }
     }
 }
 
 impl Display for Board {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        for row in &self.fields {
-            for field in row {
-                let sym = match field {
-                    Field::EMPTY => "_",
-                    Field::OCCUPIED(Player::WHITE) => "W",
-                    Field::OCCUPIED(Player::BLACK) => "B",
-                };
-                write!(f, "{} ", sym)?;
+        for (i, row) in self.fields.iter().enumerate() {
+            for (j, field) in row.iter().enumerate() {
+                if self.last_move_from == Some((i, j)) {
+                    write!(f, "o ")?;
+                } else {
+                    let sym = match field {
+                        Field::EMPTY => "_",
+                        Field::OCCUPIED(Player::WHITE) => "W",
+                        Field::OCCUPIED(Player::BLACK) => "B",
+                    };
+                    write!(f, "{} ", sym)?;
+                }
             }
             writeln!(f)?;
         }

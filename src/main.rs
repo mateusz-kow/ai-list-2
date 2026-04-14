@@ -1,58 +1,76 @@
-mod tree;
-mod heuristic;
 mod board;
-mod engine;
+mod heuristic;
+mod tree;
 
-use tree::TreeNode;
-use crate::board::{Board, Field, Player};
-use crate::heuristic::{OccupiedSquaresCountHeuristic, Heuristic};
+use std::io::{self, BufRead};
+use std::time::Instant;
+use crate::board::{Board, Player, Field};
+use crate::heuristic::*;
+use crate::tree::AlphaBeta;
 
 fn main() {
-    let depth: usize = 5;
-    let m: usize = 8;
-    let n: usize = 8;
+    let stdin = io::stdin();
+    let mut input = stdin.lock().lines();
+
+    println!("Podaj m, n, d (np. 8 8 5):");
+    let line = input.next().unwrap().unwrap();
+    let vals: Vec<usize> = line.split_whitespace().map(|x| x.parse().unwrap()).collect();
+    let (m, n, d) = (vals[0], vals[1], vals[2]);
+
+    println!("Wybierz heurystyki (1: PieceCount, 2: SumDist, 3: MaxDist) dla Gracza 1 i 2:");
+    let line = input.next().unwrap().unwrap();
+    let h_ids: Vec<usize> = line.split_whitespace().map(|x| x.parse().unwrap()).collect();
+
+    let h1 = get_h(h_ids[0]);
+    let h2 = get_h(h_ids[1]);
 
     let mut board = Board::new(m, n);
-    let heuristic = OccupiedSquaresCountHeuristic {};
     let mut current_player = Player::WHITE;
+    let mut turns = 0;
 
-    println!("Initial Board:\n{}", board);
+    println!("Start:\n{}", board);
 
-    for i in 0..100 {
-        println!("--- Turn {}: {:?} ---", i, current_player);
+    while turns < 200 {
+        let start = Instant::now();
+        let mut nodes = 0;
+        let h = if current_player == Player::WHITE { &*h1 } else { &*h2 };
 
-        let mut root = TreeNode::new(board.clone(), current_player);
-        root.compute_minimax(depth, true, &heuristic, current_player);
+        let next_board = AlphaBeta::get_best_move(&board, d, current_player, h, &mut nodes);
 
-        if let Some(best_node) = root.children.iter().max_by_key(|c| c.value) {
-            board = best_node.board.clone();
+        let elapsed = start.elapsed();
+        eprintln!("Gracz {:?} | Węzły: {} | Czas: {:?}", current_player, nodes, elapsed);
+
+        if let Some(nb) = next_board {
+            board = nb;
         } else {
-            println!("No moves left for {:?}", current_player);
+            println!("Brak ruchów dla {:?}.", current_player);
             break;
         }
 
-        println!("{}", board);
+        turns += 1;
+        println!("Tura {}:\n{}", turns, board);
 
-        if let Some(winner) = determine_winner(&board) {
-            println!("GAME OVER! {:?} won!", winner);
+        if let Some(winner) = check_winner(&board) {
+            println!("KONIEC! Wygrał: {:?}. Rundy: {}", winner, (turns + 1) / 2);
             break;
         }
-
         current_player = current_player.opponent();
     }
 }
 
-fn determine_winner(board: &Board) -> Option<Player> {
+fn get_h(id: usize) -> Box<dyn Heuristic> {
+    match id {
+        1 => Box::new(OccupiedSquaresCountHeuristic),
+        2 => Box::new(SumDistanceHeuristic),
+        _ => Box::new(MaxDistanceHeuristic),
+    }
+}
+
+fn check_winner(board: &Board) -> Option<Player> {
     let width = board.fields[0].len();
     for row in &board.fields {
-        if row[width - 1] == Field::OCCUPIED(Player::WHITE) {
-            return Some(Player::WHITE);
-        }
-
-        if row[0] == Field::OCCUPIED(Player::BLACK) {
-            return Some(Player::BLACK);
-        }
+        if row[width - 1] == Field::OCCUPIED(Player::WHITE) { return Some(Player::WHITE); }
+        if row[0] == Field::OCCUPIED(Player::BLACK) { return Some(Player::BLACK); }
     }
-
     None
 }
