@@ -2,75 +2,109 @@ mod board;
 mod heuristic;
 mod tree;
 
+use crate::board::{Board, Player, Field};
+use crate::tree::Solver;
+use clap::Parser;
 use std::io::{self, BufRead};
 use std::time::Instant;
-use crate::board::{Board, Player, Field};
-use crate::heuristic::*;
-use crate::tree::AlphaBeta;
+use std::sync::atomic::AtomicU64;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(short = 'm', long, help = "Liczba wierszy")]
+    m: usize,
+
+    #[arg(short = 'n', long, help = "Liczba kolumn")]
+    n: usize,
+
+    #[arg(short = 'd', long, help = "Głębokość przeszukiwania")]
+    depth: usize,
+
+    #[arg(short = 'w', long, help = "Heurystyka Białego (1-3)", default_value_t = 1)]
+    h_white: usize,
+
+    #[arg(short = 'b', long, help = "Heurystyka Czarnego (1-3)", default_value_t = 1)]
+    h_black: usize,
+}
 
 fn main() {
+    let args = Args::parse();
+
+    let h_white = heuristic::get_heuristic(args.h_white);
+    let h_black = heuristic::get_heuristic(args.h_black);
+
     let stdin = io::stdin();
-    let mut input = stdin.lock().lines();
+    let mut fields = Vec::new();
 
-    println!("Podaj m, n, d (np. 8 8 5):");
-    let line = input.next().unwrap().unwrap();
-    let vals: Vec<usize> = line.split_whitespace().map(|x| x.parse().unwrap()).collect();
-    let (m, n, d) = (vals[0], vals[1], vals[2]);
+    eprintln!("Wczytywanie planszy {}x{} ze stdin...", args.m, args.n);
 
-    println!("Wybierz heurystyki (1: PieceCount, 2: SumDist, 3: MaxDist) dla Gracza 1 i 2:");
-    let line = input.next().unwrap().unwrap();
-    let h_ids: Vec<usize> = line.split_whitespace().map(|x| x.parse().unwrap()).collect();
 
-    let h1 = get_h(h_ids[0]);
-    let h2 = get_h(h_ids[1]);
+    for line in stdin.lock().lines() {
+        let l = line.unwrap();
+        if l.trim().is_empty() { continue; }
 
-    let mut board = Board::new(m, n);
+        let row: Vec<Field> = l.split_whitespace().map(|s| match s {
+            "W" => Field::OCCUPIED(Player::WHITE),
+            "B" => Field::OCCUPIED(Player::BLACK),
+            "o" | "_" => Field::EMPTY,
+            _ => Field::EMPTY,
+        }).collect();
+
+        if row.len() >= args.n {
+            fields.push(row[..args.n].to_vec());
+        }
+
+        if fields.len() == args.m { break; }
+    }
+
+    if fields.len() != args.m {
+        eprintln!("Błąd: Wczytano {} wierszy, a oczekiwano {}. Sprawdź wymiary -m i -n.", fields.len(), args.m);
+        return;
+    }
+
+    let mut board = Board::new(args.m, args.n, fields);
     let mut current_player = Player::WHITE;
-    let mut turns = 0;
 
-    println!("Start:\n{}", board);
+    println!("Start gry Breakthrough (Plansza {}x{}, Głębokość {})", args.m, args.n, args.depth);
 
-    while turns < 200 {
+    for r in 1..500 {
+        let nodes = AtomicU64::new(0);
         let start = Instant::now();
-        let mut nodes = 0;
-        let h = if current_player == Player::WHITE { &*h1 } else { &*h2 };
 
-        let next_board = AlphaBeta::get_best_move(&board, d, current_player, h, &mut nodes);
 
-        let elapsed = start.elapsed();
-        eprintln!("Gracz {:?} | Węzły: {} | Czas: {:?}", current_player, nodes, elapsed);
+        let h = if current_player == Player::WHITE { &*h_white } else { &*h_black };
 
-        if let Some(nb) = next_board {
+
+        let next_move = Solver::get_best_move(&board, args.depth, current_player, h, &nodes);
+
+        let duration = start.elapsed();
+        eprintln!("Runda {}: {:?} | Węzły: {} | Czas: {:?}", r, current_player, nodes.load(std::sync::atomic::Ordering::Relaxed), duration);
+
+        if let Some(nb) = next_move {
             board = nb;
         } else {
-            println!("Brak ruchów dla {:?}.", current_player);
+            println!("Brak możliwych ruchów dla {:?}", current_player);
             break;
         }
 
-        turns += 1;
-        println!("Tura {}:\n{}", turns, board);
 
-        if let Some(winner) = check_winner(&board) {
-            println!("KONIEC! Wygrał: {:?}. Rundy: {}", winner, (turns + 1) / 2);
+        println!("{}", board);
+
+        if check_win(&board) {
+            println!("--- WYNIK ---");
+            println!("Liczba rund: {}", r);
+            println!("Zwycięzca: {:?}", current_player);
             break;
         }
         current_player = current_player.opponent();
     }
 }
 
-fn get_h(id: usize) -> Box<dyn Heuristic> {
-    match id {
-        1 => Box::new(OccupiedSquaresCountHeuristic),
-        2 => Box::new(SumDistanceHeuristic),
-        _ => Box::new(MaxDistanceHeuristic),
+fn check_win(board: &Board) -> bool {
+    for j in 0..board.n {
+        if board.fields[board.m - 1][j] == Field::OCCUPIED(Player::WHITE) { return true; }
+        if board.fields[0][j] == Field::OCCUPIED(Player::BLACK) { return true; }
     }
-}
-
-fn check_winner(board: &Board) -> Option<Player> {
-    let width = board.fields[0].len();
-    for row in &board.fields {
-        if row[width - 1] == Field::OCCUPIED(Player::WHITE) { return Some(Player::WHITE); }
-        if row[0] == Field::OCCUPIED(Player::BLACK) { return Some(Player::BLACK); }
-    }
-    None
+    false
 }

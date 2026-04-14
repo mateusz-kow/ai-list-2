@@ -1,50 +1,98 @@
 use crate::board::{Board, Player};
 use crate::heuristic::Heuristic;
+use dashmap::DashMap;
+use rayon::prelude::*;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-pub struct AlphaBeta;
+#[derive(Clone, Copy)]
+enum NodeTag { Exact, Alpha, Beta }
 
-impl AlphaBeta {
-    pub fn get_best_move(board: &Board, depth: usize, player: Player, heuristic: &dyn Heuristic, nodes: &mut u64) -> Option<Board> {
-        let moves = board.get_possible_moves(player);
-        let mut best_val = if player == Player::WHITE { i32::MIN } else { i32::MAX };
-        let mut best_board = None;
+struct CacheEntry {
+    val: i32,
+    depth: usize,
+    tag: NodeTag,
+}
 
-        for m in moves {
-            let val = Self::search(&m, depth - 1, i32::MIN, i32::MAX, player.opponent(), heuristic, nodes);
-            if player == Player::WHITE {
-                if val >= best_val { best_val = val; best_board = Some(m); }
-            } else {
-                if val <= best_val { best_val = val; best_board = Some(m); }
-            }
-        }
-        best_board
+type Cache = DashMap<u64, CacheEntry>;
+
+pub struct Solver;
+
+impl Solver {
+    pub fn get_best_move(board: &Board, depth: usize, player: Player, heuristic: &dyn Heuristic, nodes: &AtomicU64) -> Option<Board> {
+        let mut moves = board.get_possible_moves(player);
+        if moves.is_empty() { return None; }
+
+
+        moves.sort_by_cached_key(|m| -heuristic.eval_state(m) * if player == Player::WHITE { 1 } else { -1 });
+
+        let cache = DashMap::new();
+
+        moves.into_par_iter().map(|m| {
+            let val = Self::alpha_beta(&m, depth - 1, -30000, 30000, false, player.opponent(), heuristic, nodes, &cache);
+            (m, val)
+        }).max_by_key(|x| if player == Player::WHITE { x.1 } else { -x.1 })
+            .map(|x| x.0)
     }
 
-    fn search(board: &Board, depth: usize, mut alpha: i32, mut beta: i32, player: Player, heuristic: &dyn Heuristic, nodes: &mut u64) -> i32 {
-        *nodes += 1;
-        if depth == 0 { return heuristic.eval_state(board); }
+    fn alpha_beta(
+        board: &Board,
+        depth: usize,
+        mut alpha: i32,
+        mut beta: i32,
+        maximizing: bool,
+        curr_player: Player,
+        heuristic: &dyn Heuristic,
+        nodes: &AtomicU64,
+        cache: &Cache
+    ) -> i32 {
+        nodes.fetch_add(1, Ordering::Relaxed);
 
-        let moves = board.get_possible_moves(player);
+        if let Some(entry) = cache.get(&board.hash) {
+            if entry.depth >= depth {
+                match entry.tag {
+                    NodeTag::Exact => return entry.val,
+                    NodeTag::Alpha => alpha = alpha.max(entry.val),
+                    NodeTag::Beta => beta = beta.min(entry.val),
+                }
+                if alpha >= beta { return entry.val; }
+            }
+        }
+
+        if depth == 0 || Self::is_terminal(board) {
+            return heuristic.eval_state(board);
+        }
+
+        let moves = board.get_possible_moves(curr_player);
         if moves.is_empty() { return heuristic.eval_state(board); }
 
-        if player == Player::WHITE {
-            let mut max_eval = i32::MIN;
-            for m in moves {
-                let eval = Self::search(&m, depth - 1, alpha, beta, Player::BLACK, heuristic, nodes);
-                max_eval = max_eval.max(eval);
-                alpha = alpha.max(eval);
-                if beta <= alpha { break; }
+        let mut best_val = if maximizing { -32000 } else { 32000 };
+        let original_alpha = alpha;
+
+        for m in moves {
+            let val = Self::alpha_beta(&m, depth - 1, alpha, beta, !maximizing, curr_player.opponent(), heuristic, nodes, cache);
+            if maximizing {
+                best_val = best_val.max(val);
+                alpha = alpha.max(best_val);
+            } else {
+                best_val = best_val.min(val);
+                beta = beta.min(best_val);
             }
-            max_eval
-        } else {
-            let mut min_eval = i32::MAX;
-            for m in moves {
-                let eval = Self::search(&m, depth - 1, alpha, beta, Player::WHITE, heuristic, nodes);
-                min_eval = min_eval.min(eval);
-                beta = beta.min(eval);
-                if beta <= alpha { break; }
-            }
-            min_eval
+            if beta <= alpha { break; }
         }
+
+        let tag = if best_val <= original_alpha { NodeTag::Beta }
+        else if best_val >= beta { NodeTag::Alpha }
+        else { NodeTag::Exact };
+
+        cache.insert(board.hash, CacheEntry { val: best_val, depth, tag });
+        best_val
+    }
+
+    fn is_terminal(board: &Board) -> bool {
+        for j in 0..board.n {
+            if board.fields[board.m-1][j] == crate::board::Field::OCCUPIED(Player::WHITE) { return true; }
+            if board.fields[0][j] == crate::board::Field::OCCUPIED(Player::BLACK) { return true; }
+        }
+        false
     }
 }

@@ -1,6 +1,9 @@
 use std::fmt::{Display, Formatter};
+use std::sync::OnceLock;
 
-#[derive(PartialEq, Debug, Copy, Clone)]
+static ZOBRIST: OnceLock<Vec<Vec<u64>>> = OnceLock::new();
+
+#[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 pub enum Player { WHITE, BLACK }
 
 impl Player {
@@ -12,31 +15,48 @@ impl Player {
     }
 }
 
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 pub enum Field { OCCUPIED(Player), EMPTY }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Board {
     pub fields: Vec<Vec<Field>>,
+    pub hash: u64,
     pub last_move_from: Option<(usize, usize)>,
+    pub m: usize,
+    pub n: usize,
 }
 
 impl Board {
-    pub fn new(m: usize, n: usize) -> Board {
-        let mut fields = vec![vec![Field::EMPTY; n]; m];
+    fn get_zobrist_table() -> &'static Vec<Vec<u64>> {
+        ZOBRIST.get_or_init(|| {
+            let mut v = vec![vec![0u64; 2]; 1024];
+            for i in 0..1024 {
+                for j in 0..2 { v[i][j] = rand::random::<u64>(); }
+            }
+            v
+        })
+    }
+
+    pub fn new(m: usize, n: usize, fields: Vec<Vec<Field>>) -> Board {
+        let mut h = 0u64;
+        let table = Self::get_zobrist_table();
         for i in 0..m {
-            fields[i][0] = Field::OCCUPIED(Player::WHITE);
-            fields[i][1] = Field::OCCUPIED(Player::WHITE);
-            fields[i][n - 2] = Field::OCCUPIED(Player::BLACK);
-            fields[i][n - 1] = Field::OCCUPIED(Player::BLACK);
+            for j in 0..n {
+                let idx = i * n + j;
+                if let Field::OCCUPIED(p) = fields[i][j] {
+                    let p_idx = if p == Player::WHITE { 0 } else { 1 };
+                    h ^= table[idx][p_idx];
+                }
+            }
         }
-        Board { fields, last_move_from: None }
+        Board { fields, hash: h, last_move_from: None, m, n }
     }
 
     pub fn get_possible_moves(&self, player: Player) -> Vec<Board> {
         let mut boards = Vec::new();
-        for i in 0..self.fields.len() {
-            for j in 0..self.fields[0].len() {
+        for i in 0..self.m {
+            for j in 0..self.n {
                 if let Field::OCCUPIED(p) = self.fields[i][j] {
                     if p == player {
                         boards.append(&mut self.get_moves_for_piece(i, j, player));
@@ -49,25 +69,30 @@ impl Board {
 
     fn get_moves_for_piece(&self, i: usize, j: usize, player: Player) -> Vec<Board> {
         let mut moves = Vec::new();
-        let height = self.fields.len() as isize;
-        let width = self.fields[0].len() as isize;
+
         let direction: isize = if player == Player::WHITE { 1 } else { -1 };
 
-        let nj = j as isize + direction;
-        if nj < 0 || nj >= width { return moves; }
+        let target_i = i as isize + direction;
 
-        for &ni_off in &[-1, 0, 1] {
-            let ni = i as isize + ni_off;
-            if ni < 0 || ni >= height { continue; }
-            let target = self.fields[ni as usize][nj as usize];
+        if target_i < 0 || target_i >= self.m as isize { return moves; }
+        let ti = target_i as usize;
 
-            if ni_off == 0 {
-                if target == Field::EMPTY {
-                    moves.push(self.create_move(i, j, ni as usize, nj as usize));
+
+        for dj in &[-1, 0, 1] {
+            let target_j = j as isize + dj;
+            if target_j < 0 || target_j >= self.n as isize { continue; }
+
+            let tj = target_j as usize;
+            let target_field = self.fields[ti][tj];
+
+            if *dj == 0 {
+                if target_field == Field::EMPTY {
+                    moves.push(self.create_move(i, j, ti, tj));
                 }
             } else {
-                if target != Field::OCCUPIED(player) {
-                    moves.push(self.create_move(i, j, ni as usize, nj as usize));
+
+                if target_field != Field::OCCUPIED(player) {
+                    moves.push(self.create_move(i, j, ti, tj));
                 }
             }
         }
@@ -76,26 +101,49 @@ impl Board {
 
     fn create_move(&self, f_i: usize, f_j: usize, t_i: usize, t_j: usize) -> Board {
         let mut next_fields = self.fields.clone();
+        let table = Self::get_zobrist_table();
+        let player = match self.fields[f_i][f_j] {
+            Field::OCCUPIED(p) => p,
+            _ => unreachable!(),
+        };
+        let p_idx = if player == Player::WHITE { 0 } else { 1 };
+        let opp_idx = 1 - p_idx;
+
+        let mut next_hash = self.hash;
+
+        next_hash ^= table[f_i * self.n + f_j][p_idx];
+
+        if let Field::OCCUPIED(_) = self.fields[t_i][t_j] {
+            next_hash ^= table[t_i * self.n + t_j][opp_idx];
+        }
+
+        next_hash ^= table[t_i * self.n + t_j][p_idx];
+
         next_fields[t_i][t_j] = next_fields[f_i][f_j];
         next_fields[f_i][f_j] = Field::EMPTY;
-        Board { fields: next_fields, last_move_from: Some((f_i, f_j)) }
+
+        Board {
+            fields: next_fields,
+            hash: next_hash,
+            last_move_from: Some((f_i, f_j)),
+            m: self.m,
+            n: self.n,
+        }
     }
 }
 
 impl Display for Board {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        for (i, row) in self.fields.iter().enumerate() {
-            for (j, field) in row.iter().enumerate() {
-                if self.last_move_from == Some((i, j)) {
-                    write!(f, "o ")?;
-                } else {
-                    let sym = match field {
-                        Field::EMPTY => "_",
-                        Field::OCCUPIED(Player::WHITE) => "W",
-                        Field::OCCUPIED(Player::BLACK) => "B",
-                    };
-                    write!(f, "{} ", sym)?;
-                }
+        for i in 0..self.m {
+            for j in 0..self.n {
+                let symbol = match self.fields[i][j] {
+                    Field::EMPTY => {
+                        if Some((i, j)) == self.last_move_from { "o" } else { "_" }
+                    },
+                    Field::OCCUPIED(Player::WHITE) => "W",
+                    Field::OCCUPIED(Player::BLACK) => "B",
+                };
+                write!(f, "{} ", symbol)?;
             }
             writeln!(f)?;
         }
