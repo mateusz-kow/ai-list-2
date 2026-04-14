@@ -38,6 +38,20 @@ impl Board {
         })
     }
 
+    pub fn default_start(m: usize, n: usize) -> Board {
+        let mut fields = vec![vec![Field::EMPTY; n]; m];
+        for i in 0..m {
+            for j in 0..n {
+                if i == 0 || i == 1 {
+                    fields[i][j] = Field::OCCUPIED(Player::WHITE);
+                } else if i == m - 1 || i == m - 2 {
+                    fields[i][j] = Field::OCCUPIED(Player::BLACK);
+                }
+            }
+        }
+        Self::new(m, n, fields)
+    }
+
     pub fn new(m: usize, n: usize, fields: Vec<Vec<Field>>) -> Board {
         let mut h = 0u64;
         let table = Self::get_zobrist_table();
