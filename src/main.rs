@@ -96,11 +96,11 @@ fn main() {
             println!("--- KONIEC ROZGRYWKI ---");
             println!("Liczba rund: {}", r);
             println!("Zwycięzca: {:?}", current_player);
-            println!("Czas: {:?}", s.elapsed());
             break;
         }
         current_player = current_player.opponent();
     }
+    println!("Czas: {:?}", s.elapsed());
 }
 
 fn check_win(board: &Board) -> bool {
